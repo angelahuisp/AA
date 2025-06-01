@@ -323,7 +323,17 @@ accuracy <- function (x, y) {
   return( acc )
 }
 
-# --------------------- Load packages -----------------------------------------------------------------------------------------------
+
+
+# =========================================================================================================
+# Simulación y análisis de datos genómicos mediante Random Forest y selección de variables significativas
+# =========================================================================================================
+
+# Este script realiza la simulación de un conjunto de datos genómicos, ajusta modelos de Random Forest,
+# evalúa la mportancia de las variables y selecciona SNPs significativos usando validación cruzada y pruebas estadísticas
+
+
+# ============================ Carga de paquetes requeridos ===============================================
 
 library(randomForest)
 library(randomForestSRC)
@@ -336,56 +346,64 @@ library(readxl)
 library(vita)
 library(dplyr)
 
-#CREACIÓN DE LOS DATOS
+# ============================ Simulación de datos genómicos ==============================================
 
+#Fijar semilla para reproducibilidad
 set.seed(123)
 
+#Número de individuos simulados y número de SNPs (variables genéticas)
 n_individuos <- 1000
-n_snps <- 80 #Número de  variables 
+n_snps <- 80 
 
-# Simulación de genotipos
+# Simulación de genotipos: cada SNP puede tomar valores 0, 1 o 2
+# 0: homocigoto alelo 1, 1: heterocigoto, 2: homocigoto alelo 2
 genotype_matrix <- replicate(n_snps,sample(0:2, n_individuos, replace = TRUE, prob = c(0.33, 0.34, 0.33))) #Probabilidad de que el genotipo sea 0,1 o 2 (0- homo alelo 1; 1- hetero; 2-homo alelo 2)
 
+#Conversión a dataframe y  asignación de nombres
 genotipo <- as.data.frame(genotype_matrix)
 colnames(genotipo) <- paste0("SNP", 1:n_snps)
 rownames(genotipo) <- paste0("Ind", 1:n_individuos)
 
-# Calcular fenotipo según la mayoría por fila
+
+# ============================ Generación del fenotipo ====================================================
+# El fenotipo se asigna según el valor mayoritario de los SNPs en cada individuo
 fenotipo <- apply(genotipo, 1, function(row) {
   n0 <- sum(row == 0)
   n1 <- sum(row == 1)    
   n2 <- sum(row == 2)
   
   if (n0 > n1 & n0 > n2) {
-    return(0) #fenotipo = 0 si la mayoría de los SNPs son 0
+    return(0) # Fenotipo = 0 si la mayoría de los SNPs son 0
   } else if (n2 > n0 & n2 > n1) {
-    return(1) #fenotipo = 1 si la mayoría son 2
+    return(1) # Fenotipo = 1 si la mayoría son 2
   } else {
     return(sample(0:1, 1))  # fenotipo = 1 si caso empate o mayoría de 1
   }
 })
 
 
-# Añadir columnas "fenotipo" e "individuo"
+# Añadir columnas "fenotipo" e identificador de "individuo"
 genotipo$fenotipo <- fenotipo
 genotipo$individuo <- rownames(genotipo)
 
-# Reordenar columnas: individuo al principio
+# Reordenar columnas: identificador de individuo al inicio
 genotipo <- genotipo[, c("individuo", paste0("SNP", 1:n_snps), "fenotipo")]
+
+# Guardar el dataset simulado en Excel
 setwd("//wsl.localhost/Ubuntu/home/angela/example/TRABAJO")
 genotipo
 write_xlsx(genotipo,"genotipo_dataset.xlsx")
 
 genotipo[1] <- NULL  # Eliminar primera columna (nombres de fila)
+
+# Conversión de la variable respuesta a factor
 genotipo <- within(genotipo, {
   fenotipo <- as.factor(fenotipo)
 })
 
-
-
-
-niveles<- c("0", "1", "2") #Los niveles que deben de tener los SNPs: 0- homo alelo 1; 1- hetero; 2-homo alelo 2
-excluir <- c("fenotipo") #establecemos las variables como factores, excepto fenotipo porque solo tiene dos niveles
+# ============================ Conversión de SNPs a factores ==============================================
+niveles<- c("0", "1", "2") # Los niveles que deben de tener los SNPs: 0- homo alelo 1; 1- hetero; 2-homo alelo 2
+excluir <- c("fenotipo") # establecemos las variables como factores, excepto fenotipo porque solo tiene dos niveles
 cols_a_modificar <- setdiff(names(genotipo), excluir)
 
 # Aplicar la transformación solo a esas columnas
@@ -397,10 +415,14 @@ genotipo[cols_a_modificar] <- lapply(
     factor(col, levels = niveles)
   }
 )
+
+# Verificar la estructura final del objeto
 str(genotipo, list.len=ncol(genotipo))  
 
 
-#SEPARACIÓN DEL CONJUNTO EN 70% TRAIN Y 30% TEST
+# ============================ División del conjunto de datos =============================================
+# Separar en 70% entrenamiento y 30% prueba
+
 set.seed(123)  # Para que la división sea reproducible
 
 # Total de individuos
@@ -417,8 +439,8 @@ data_test_30 <- genotipo[-train_indices, ]
 cat("Train:", nrow(data_train_70), "individuos\n")
 cat("Test:", nrow(data_test_30), "individuos\n")
 
+# ============================ Búsqueda del mejor valor de mtry ===========================================
 
-#BÚSQUEDA DEL MEJOR MTRY
 set.seed(123)
 data_train_70$fenotipo <- as.factor(data_train_70$fenotipo)
 par(mar=c(4, 4, 2, 1))
@@ -435,10 +457,14 @@ params <- tuneRF(x = data_train_70[, -which(names(data_train_70) == "fenotipo")]
 
 print(params)
 
-# Extraer el mtry con menor error
+# Extraer el mtry con menor error. Selección del mejor mtry.
 best_mtry <- params[which.min(params[, "OOBError"]), "mtry"]
 print(best_mtry)
 
+
+
+# ============================ Entrenamiento del modelo Random Forest =====================================
+# Ajuste del modelo balanceando las clases
 
 # Preparar x e y por separado
 x_train <- data_train_70[, setdiff(names(data_train_70), "fenotipo")]
@@ -465,7 +491,9 @@ rf.mdl <- randomForest(
 
 save(rf.mdl, file = "rf.mdl")
 
-# Ahora puedes ejecutar la validación cruzada
+
+# ============================ Validación cruzada del modelo ==============================================
+
 rf_cv <- rf.crossValidation(
   x = rf.mdl,
   p = 0.20,
@@ -476,7 +504,7 @@ rf_cv <- rf.crossValidation(
   trace = TRUE
 )
 
-
+# Guardar resultados de validación cruzada
 sink("resultados_rf_cv_1.txt")
 # Accuracy general (Porce_NTAje de Clasificación Correcta)
 cat("=== ACCURACY GENERAL (PCC) ===\n")
@@ -516,30 +544,31 @@ cat("\n")
 # Cerrar la conexión
 sink()
 
+# ============================ Importancia de variables ===================================================
 
-
-
-
-#Extrae la importancia de las variables basada en MeanDecreaseAccuracy y MeanGini
+# Extrae la importancia de las variables basada en MeanDecreaseAccuracy y MeanGini
 importancia_pred <- rf.mdl$importance %>% enframe(name = row.names, value = "MeanDecreaseAccuracy")
 importancia <- as.data.frame(rf.mdl$importance) %>%
   rownames_to_column(var = "Variable") 
 write_xlsx(importancia, "importancia.xlsx")
 
-# Mostrar importancia de variables
+# Visualización de la importancia de variables
 svg("importancia.svg")
 varImpPlot(rf.mdl, sort = TRUE, main = "Importancia de variables")
 dev.off()
 
 
 
-#-----Validación 
-predicciones <- predict(object = rf.mdl, newdata = data_test_30)
+# ============================ Validación en conjunto de prueba ===========================================
 
+# Predicción y matriz de confusión
+predicciones <- predict(object = rf.mdl, newdata = data_test_30)
 cm <- caret::confusionMatrix(predicciones, data_test_30$fenotipo)
 
 
-#-CVPVI
+
+# ============================ Selección de variables significativas (CVPVI) ==============================
+
 X <- within(data_train_70, fenotipo <- NULL )
 X = data.frame(X) #generar dataframe para lo que quieres predecir y otra para lo demas
 Y = (data_train_70$fenotipo)
@@ -550,8 +579,8 @@ save(cv_vi, file = "cv_vi")
 summary(cv_vi)
 cv_vi$cv_varim
 
-# Novel Test approach, 
-#prueba sobre la importancia de las variables, para evaluar qué variables tienen significancia en el modelo y cuáles no.
+# Novel Test approach
+# Prueba sobre la importancia de las variables, para evaluar qué variables tienen significancia en el modelo y cuáles no.
 
 cv_p = NTA(cv_vi$cv_varim)
 sink("pvalue.txt")
@@ -569,15 +598,15 @@ significant_var_names
 
 
 
-#OBTENERMOS LAS VARIABLES SIGNIFICATIVAS
-
+# ============================ Subconjunto de variables significativas ====================================
 
 data_train_snps <- data_train_70[, c(significant_var_names, "fenotipo")]
 data_test_NTA <- data_test_30[, c(significant_var_names, "fenotipo")]
 
 
+# ============================ Nuevo Random Forest con SNPs significativos ================================
+
 set.seed(123)
-#REALIZAR RANDOM FOREST AHORA PARA LOS SIGNIFICATIVOS
 data_train_snps$fenotipo <- as.factor(data_train_snps$fenotipo)
 par(mar=c(4, 4, 2, 1))
 params_NTA <- tuneRF(x = data_train_snps[, -which(names(data_train_snps) == "fenotipo")],  
@@ -597,18 +626,14 @@ print(params)
 best_mtry_NTA <- params[which.min(params[, "OOBError"]), "mtry"]
 print(best_mtry_NTA)
 
-
-
 # Preparar x e y por separado
 x_train_snps <- data_train_snps[, setdiff(names(data_train_snps), "fenotipo")]
 y_train_snps <- data_train_snps[, "fenotipo"]
-
 
 summary(data_train_snps$fenotipo)
 
 min_class_size <- min(table(y_train_snps))
 min_class_size
-
 
 rf.mdl_NTA <- randomForest(
   x = x_train_snps,
@@ -626,7 +651,7 @@ rf.mdl_NTA <- randomForest(
   confusion = TRUE
 )
 
-# Ahora puedes ejecutar la validación cruzada
+# Ejecución la validación cruzada 
 rf_cv_NTA <- rf.crossValidation(
   x = rf.mdl_NTA,
   p = 0.20,
@@ -637,10 +662,7 @@ rf_cv_NTA <- rf.crossValidation(
   trace = TRUE
 )
 
-
-
-
-#Extrae la importancia de las variables basada en MeanDecreaseAccuracy.
+# Extrae la importancia de las variables basada en MeanDecreaseAccuracy.
 importancia_pred_NTA <- rf.mdl_NTA$importance %>% enframe(name = row.names, value = "MeanDecreaseAccuracy")
 importancia_NTA <- as.data.frame(rf.mdl_NTA$importance) %>%
   rownames_to_column(var = "Variable") 
@@ -699,21 +721,19 @@ cat("\n")
 sink()
 
 
+# ============================ Evaluación final y visualización de matrices de confusión ==================
+# Predicciones en el conjunto de prueba reducido
 
-
-###### VALIDATION ###
-#--------------------------------COMPROBACIÓN DE AMBOS CONJUNTOS DE DATOS----------------------- 
-#Se hacen las predicciones
 predicciones_NTA <- predict(object = rf.mdl_NTA, data_test_NTA)
 
 cm_NTA <- caret::confusionMatrix(predicciones_NTA, data_test_NTA$fenotipo)
 print(cm)
 print(cm_NTA)
 
+# Función para graficar la matriz de confusión y guardarla como SVG
 library(ggplot2)
 library(reshape2)
 
-# Función para graficar la matriz de confusión y guardarla como SVG
 plot_and_save_conf_matrix <- function(cm, title, filename) {
   cm_table <- as.data.frame(cm$table)  # Convertir a data.frame
   colnames(cm_table) <- c("Referencia", "Predicción", "Frecuencia")
