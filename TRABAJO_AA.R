@@ -346,14 +346,13 @@ library(dplyr)
 
 # ============================ Simulación de datos genómicos ==============================================
 
-setwd("C:/Users/angel/OneDrive/Escritorio/AA")
-
-data <-read_excel("genotipo_dataset_2.xlsx", col_types = "text")
+set.seed(123)
+data <-read_excel("Dataset_SNPs.xlsx", col_types = "text")
 data[1] <- NULL  # Eliminar primera columna (nombres de fila)
 data$fenotipo <- as.factor(data$fenotipo) #convertir a factor 
 
 
-niveles<- c("0", "1", "2") #Los niveles que deben de tener los SNPs: 0- homocigoto para alelo 1; 1- heterocigoto; 2-homocigoto alelo 2
+niveles<- c("0", "1", "2") #Los niveles que deben de tener los SNPs: 0- homocigoto para alelo 1; 1- heterocigoto; 2-homocigoto ausencia de alelo
 cols_a_factor <- setdiff(names(data), "fenotipo")
 data[cols_a_factor] <- lapply(data[cols_a_factor], function(col) {
   col <- as.character(col)
@@ -363,14 +362,12 @@ data[cols_a_factor] <- lapply(data[cols_a_factor], function(col) {
 sum(is.na(data))
 
 
-set.seed(123)
 train_indices <- sample(1:nrow(data), size = 0.7 * nrow(data)) #Se separa los datos en 2 conjuntos, train (70%) y test (30%)
 data_train <- data[train_indices, ]
 data_test  <- data[-train_indices, ]
 # ============================ Búsqueda del mejor valor de mtry ===========================================
 #mtry = nº de variables que se seleccionan aleatoriamente en cada split de cada árbol
 
-set.seed(123)
 par(mar=c(4, 4, 2, 1))
 params <- tuneRF(x = data_train[, -which(names(data_train) == "fenotipo")],  
                  y = data_train$fenotipo,
@@ -407,8 +404,7 @@ rf.mdl <- randomForest(
   strata = y_train, 
   sampsize = c(min_class_size,min_class_size),#Toma el mismo número de muestras por clase en cada árbol
   mtry = best_mtry,
-  ntree = 5000, #RF con 5000 árboles
-  seed=123) #Número total de árboles a entrenar
+  ntree = 5000) #RF con 5000 árboles
 
 
 # Validación cruzada del modelo 
@@ -416,16 +412,16 @@ rf_cv <- rf.crossValidation(
   x = rf.mdl,
   p=0.2, #Proporción de datos usada como conjunto de validación en cada iteración de la cross-validation.
   n = 5, #número repeticiones de validación cruzada
-  seed = 123,
   trace = TRUE, #Muestra progreso
 )
+cat("Accuracy en cada iteración:", rf_cv$cv.oob$CV.PCC)
 
 
 #Validación en conjunto test 
 
 # Predicción y matriz de confusión
 predicciones <- predict(object = rf.mdl, newdata = data_test)
-cm <- caret::confusionMatrix(predicciones, data_test$fenotipo)
+cm <- caret::confusionMatrix(predicciones, data_test$fenotipo, positive = "1")
 
 # ============================ Selección de variables significativas (CVPVI) ==============================
 # Novel Test approach
@@ -436,7 +432,12 @@ X = data.frame(X) #generar dataframe para lo que quieres predecir y otra para lo
 Y = (data_train$fenotipo)
 
 cv_vi = CVPVI(X,Y,k = 2, mtry = best_mtry, ntree =5000, seed=123)
-#cv_vi$cv_varim #si se quiere observar la importancia calculada para cada snp
+
+
+
+sink("importancia_CVPCI.txt")
+cv_vi$cv_varim #si se quiere observar la importancia calculada para cada snp
+sink()
 
 cv_p = NTA(cv_vi$cv_varim)
 cv_p_summary <- summary(cv_p)  
@@ -458,7 +459,6 @@ data_test_NTA <- data_test[, c(significant_var_names, "fenotipo")]
 
 # ============================ Nuevo Random Forest con SNPs significativos ================================
 
-set.seed(123)
 data_train_NTA$fenotipo <- as.factor(data_train_NTA$fenotipo)
 par(mar=c(4, 4, 2, 1))
 params_NTA <- tuneRF(x = data_train_NTA[, -which(names(data_train_NTA) == "fenotipo")],  
@@ -495,7 +495,6 @@ rf_cv_NTA <- rf.crossValidation(
   x = rf.mdl_NTA,
   p = 0.20,
   n = 5,
-  seed = 123,
   trace = TRUE
 )
 
@@ -506,7 +505,7 @@ rf_cv_NTA <- rf.crossValidation(
 # Predicciones en el conjunto de prueba reducido
 
 predicciones_NTA <- predict(object = rf.mdl_NTA, data_test_NTA)
-cm_NTA <- caret::confusionMatrix(predicciones_NTA, data_test_NTA$fenotipo)
+cm_NTA <- caret::confusionMatrix(predicciones_NTA, data_test_NTA$fenotipo, positive = "1") #se establece que 1 es enfermo (positivo)
 
 
 #Métricas para modelo completo (todas las variables)
@@ -526,34 +525,43 @@ cat("Especificidad :", round(cm_NTA$byClass["Specificity"], 4), "\n")
 
 library(ggplot2)
 library(reshape2)
-plot_conf_matrix <- function(cm, title) {
+plot_conf_matrix <- function(cm) {
   cm_table <- as.data.frame(cm$table)
   colnames(cm_table) <- c("Referencia", "Predicción", "Frecuencia")
   
-  p <- ggplot(data = cm_table, aes(x = Predicción, y = Referencia, fill = Frecuencia)) +  # <-- intercambiados
+  p <- ggplot(data = cm_table, aes(x = Predicción, y = Referencia, fill = Frecuencia)) +
     geom_tile() +
-    geom_text(aes(label = Frecuencia), color = "white", size = 6) +
+    geom_text(aes(label = Frecuencia), color = "white", size = 7) +
     scale_fill_gradient(low = "lightblue", high = "blue") +
     theme_minimal() +
-    labs(title = title, x = "Clase Predicha", y = "Clase Real")
+    labs(x = "Clase Predicha", y = "Clase Real") + 
+    theme(
+      axis.title.x = element_text(size = 16),
+      axis.title.y = element_text(size = 16),
+      axis.text = element_text(size = 14)
+    )
   
   print(p)
 }
 
 
+
 # Matrices de confusión
-plot_conf_matrix(cm, "Matriz de Confusión - Modelo Completo")
-plot_conf_matrix(cm_NTA, "Matriz de Confusión - Modelo con SNPs signifcativos")
+plot_conf_matrix(cm) # Matriz de Confusión - Modelo completo
+ggsave("modelo_completo.png", width = 6, height = 6, dpi = 300)
+
+plot_conf_matrix(cm_NTA) # Matriz de Confusión - Modelo con SNPs signifcativos
+ggsave("modelo_NTA.png", width = 6, height = 6, dpi = 300)
 
 
 #Archivo con las métricas y los
 sink("Resultados.txt")  
 cat("Datos de entrenamiento y de validación\n")
 cat("Train:", nrow(data_train), "individuos")
-cat("Distribución en Train:\n")
+cat("\nDistribución en Train:\n")
 print(table(data_train$fenotipo))
 cat("Test:", nrow(data_test), "individuos")
-cat("Distribución en Test:\n")
+cat("\nDistribución en Test:\n")
 print(table(data_test$fenotipo))
 cat("Resultados RF modelo completo\n")
 print(cm$table)
@@ -565,7 +573,6 @@ cat("Especificidad :", round(cm$byClass["Specificity"], 4), "\n")
 
 cat("\nResultados Validación cruzada modelo completo:\n")
 
-cat("Accuracy en cada iteración:", rf_cv$cv.oob$CV.PCC)
 cat("\nAccuracy medio: ", mean(rf_cv$cv.oob$CV.PCC))
 cat("\nDesviación estándar: ", sd(rf_cv$cv.oob$CV.PCC))
 
@@ -580,11 +587,15 @@ cat("\nExactitud :", round(cm_NTA$overall["Accuracy"], 4), "\n")
 cat("Sensibilidad :", round(cm_NTA$byClass["Sensitivity"], 4), "\n")
 cat("Especificidad :", round(cm_NTA$byClass["Specificity"], 4), "\n")
 
-cat("\nResultados Validación cruzada modelo con variables significativas\n:")
-cat("Accuracy en cada iteración:", rf_cv_NTA$cv.oob$CV.PCC)
+cat("\nResultados Validación cruzada modelo con variables significativas:\n")
 cat("\nAccuracy medio: ", mean(rf_cv_NTA$cv.oob$CV.PCC))
 cat("\nDesviación estándar: ", sd(rf_cv_NTA$cv.oob$CV.PCC))
 sink()
+
+
+
+
+
 
 
 
