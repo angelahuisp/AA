@@ -433,23 +433,21 @@ Y = (data_train$fenotipo)
 
 cv_vi = CVPVI(X,Y,k = 2, mtry = best_mtry, ntree =5000, seed=123)
 
-
-
-sink("importancia_CVPCI.txt")
-cv_vi$cv_varim #si se quiere observar la importancia calculada para cada snp
-sink()
+#cv_vi$cv_varim #si se quiere observar la importancia calculada para cada snp
 
 cv_p = NTA(cv_vi$cv_varim)
-cv_p_summary <- summary(cv_p)  
+cv_p_summary <- summary(cv_p)
 # Resumen de los resultados con pvalue < 0.05
 cmat <- cv_p_summary$cmat #matriz 'cmat' que contiene los valores de importancia y p-value
 cv_p_df <- as.data.frame(cmat)
 colnames(cv_p_df) <- c("CVPVI_Importancia", "p-value")
 significant_vars <- cv_p_df[cv_p_df$`p-value` < 0.05, ] # Filtrar las variables cuyo p-value sea menor que 0.05
 significant_var_names <- rownames(significant_vars) # Obtener los nombres de las variables significativas
+
+
+cat("\n\nVariables significativas:\n")
+print(cv_p_summary)
 significant_var_names
-
-
 
 # Subconjunto de variables significativas
 #Se extrae de los datos únicamente las variables significativas, se ha establecido un umbral de valor p < 0.05
@@ -560,10 +558,11 @@ cat("Datos de entrenamiento y de validación\n")
 cat("Train:", nrow(data_train), "individuos")
 cat("\nDistribución en Train:\n")
 print(table(data_train$fenotipo))
-cat("Test:", nrow(data_test), "individuos")
+cat("\nTest:", nrow(data_test), "individuos")
 cat("\nDistribución en Test:\n")
 print(table(data_test$fenotipo))
-cat("Resultados RF modelo completo\n")
+cat("\n\n\n-----------------------------------------\n")
+cat("\nResultados RF modelo completo\n")
 print(cm$table)
 
 # Extraer métricas específicas
@@ -571,14 +570,14 @@ cat("\nExactitud :", round(cm$overall["Accuracy"], 4), "\n")
 cat("Sensibilidad :", round(cm$byClass["Sensitivity"], 4), "\n")
 cat("Especificidad :", round(cm$byClass["Specificity"], 4), "\n")
 
-cat("\nResultados Validación cruzada modelo completo:\n")
+cat("\nResultados Validación cruzada:\n")
 
 cat("\nAccuracy medio: ", mean(rf_cv$cv.oob$CV.PCC))
 cat("\nDesviación estándar: ", sd(rf_cv$cv.oob$CV.PCC))
 
-cat("\n\nVariables significativas:")
-print(cv_p_summary)
-cat("\n\nResultados RF modelo completo\n")
+
+cat("\n\n\n-----------------------------------------\n")
+cat("Resultados RF modelo con SNPs significativos\n")
 
 print(cm_NTA$table)
 
@@ -587,18 +586,10 @@ cat("\nExactitud :", round(cm_NTA$overall["Accuracy"], 4), "\n")
 cat("Sensibilidad :", round(cm_NTA$byClass["Sensitivity"], 4), "\n")
 cat("Especificidad :", round(cm_NTA$byClass["Specificity"], 4), "\n")
 
-cat("\nResultados Validación cruzada modelo con variables significativas:\n")
+cat("\nResultados Validación cruzada:\n")
 cat("\nAccuracy medio: ", mean(rf_cv_NTA$cv.oob$CV.PCC))
 cat("\nDesviación estándar: ", sd(rf_cv_NTA$cv.oob$CV.PCC))
 sink()
-
-
-
-
-
-
-
-
 
 
 
