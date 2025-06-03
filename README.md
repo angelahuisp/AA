@@ -15,4 +15,4 @@ Este repositorio contiene el código y los datos empleados en un caso de estudio
 
 El objetivo de este trabajo es aplicar un modelo de Random Forest sobre un conjunto de datos simulado de SNPs, identificar las variables (SNPs) más relevantes mediante un procedimiento de validación cruzada de importancia de variables (CVPVI), y evaluar su significancia estadística mediante el algoritmo NTA.
 
-Posteriormente, se realiza un análisis de regresión para estudiar la relación entre los pesos de los SNPs y su importancia estimada.
+Posteriormente, se realizó un análisis de regresión para estudiar la relación entre los pesos de los SNPs y su importancia estimada.
